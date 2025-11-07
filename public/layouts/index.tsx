@@ -1,6 +1,6 @@
+import { Toaster } from '@public/components/ui/sonner'
 import type { ComponentType, PropsWithChildren } from 'react'
 import { QueryProvider } from './query-provider'
-import { Toaster } from '@public/components/ui/sonner'
 
 /**
  * Type-safe utility to compose multiple React providers
@@ -24,18 +24,19 @@ type Provider<TProps = Record<string, unknown>> = [
  */
 function composeProviders(providers: Provider[]) {
   return ({ children }: PropsWithChildren) => {
-    return providers.reduceRight((acc, [Provider, props = {}]) => {
-      return (
-        <Provider key={Provider.displayName} {...props}>
-          {acc}
-        </Provider>
-      )
-    }, (
+    return providers.reduceRight(
+      (acc, [Provider, props = {}]) => {
+        return (
+          <Provider key={Provider.displayName} {...props}>
+            {acc}
+          </Provider>
+        )
+      },
       <>
         {children}
         <Toaster />
       </>
-    ))
+    )
   }
 }
 

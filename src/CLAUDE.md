@@ -24,6 +24,8 @@ src/
 ├── auth-service.ts       # Auth macro for protected routes
 ├── db/
 │   ├── index.ts         # Drizzle client initialization
+│   ├── models.ts        # Pre-generated drizzle-typebox schemas
+│   ├── typebox.ts       # Drizzle-typebox utility functions
 │   └── schema/          # Database schemas
 ├── lib/
 │   ├── auth.ts          # Better Auth configuration
@@ -105,6 +107,219 @@ export namespace UserModel {
 - Models define both runtime validation AND TypeScript types
 - Use `typeof schema.static` to extract the TypeScript type
 - No need for separate interfaces
+
+---
+
+## Drizzle-Typebox Integration
+
+This project uses **drizzle-typebox** to automatically generate Elysia validation schemas from Drizzle database schemas, ensuring consistency between the database layer and API validation.
+
+### Why Drizzle-Typebox?
+
+- **Single Source of Truth**: Database schema definitions automatically become API validation schemas
+- **Type Safety**: End-to-end type safety from database to API to frontend (via Eden Treaty)
+- **DRY Principle**: No need to manually duplicate field definitions
+- **Auto-Generated OpenAPI**: Validation schemas automatically appear in OpenAPI documentation
+
+### Core Workflow
+
+```
+Drizzle Schema → drizzle-typebox → Elysia Validation → OpenAPI Docs → Eden Treaty
+```
+
+### Table Singleton Pattern (Recommended)
+
+This project uses the **Table Singleton** pattern from Elysia's documentation. All database validation schemas are centralized in `src/db/models.ts` via the `db` object:
+
+```typescript
+// Import the db singleton
+import { db } from '@server/db/models'
+
+export namespace UserModel {
+  // Destructure schemas from db.select or db.insert
+  const { user } = db.select
+  export { user }
+  export type User = typeof user
+
+  // For custom schemas, define them as usual
+  export const updateProfile = t.Object({
+    name: t.Optional(t.String({ minLength: 1, maxLength: 100 })),
+    image: t.Optional(t.Union([t.String({ format: 'uri' }), t.Null()]))
+  })
+  export type UpdateProfile = typeof updateProfile.static
+}
+```
+
+**Available schemas in `db` singleton:**
+- `db.select.user` / `db.insert.user`
+- `db.select.session` / `db.insert.session`
+- `db.select.account` / `db.insert.account`
+- `db.select.verification` / `db.insert.verification`
+
+### Using Schemas in Routes
+
+You can also destructure fields directly for inline validation:
+
+```typescript
+import { db } from '@server/db/models'
+
+const { user } = db.insert
+
+new Elysia().post('/sign-up', ({ body }) => {
+  // body is validated with user.email and user.name
+}, {
+  body: t.Object({
+    email: user.email,
+    name: user.name
+  })
+})
+```
+
+### Critical Best Practice: Avoid Type Instantiation Errors
+
+**ALWAYS declare a variable for drizzle-typebox schemas before using Elysia type utilities** (`t.Omit`, `t.Pick`, etc.):
+
+```typescript
+// ✅ CORRECT - Store in variable first
+const _insertUser = createInsertSchema(table.user)
+const insertUser = t.Omit(_insertUser, ['id', 'createdAt'])
+
+// ❌ WRONG - Direct usage causes "Type instantiation is excessively deep" error
+const insertUser = t.Omit(createInsertSchema(table.user), ['id'])
+```
+
+### Adding Schemas for New Tables
+
+When you create a new Drizzle table, add it to the `db` singleton in `src/db/models.ts`:
+
+```typescript
+// src/db/models.ts
+import { t } from 'elysia'
+import { createInsertSchema, spreads } from './typebox'
+import { table } from './schema'
+
+export const db = {
+  insert: spreads(
+    {
+      user: createInsertSchema(table.user, {
+        email: t.String({ format: 'email' })
+      }),
+      // Add your new table here with custom validation
+      post: createInsertSchema(table.post, {
+        title: t.String({ minLength: 1, maxLength: 200 })
+      })
+    },
+    'insert'
+  ),
+  select: spreads(
+    {
+      user: table.user,
+      // Add your new table here
+      post: table.post
+    },
+    'select'
+  )
+} as const
+```
+
+Then use it in your module models:
+
+```typescript
+import { db } from '@server/db/models'
+
+export namespace PostModel {
+  const { post } = db.select
+  export { post }
+  export type Post = typeof post
+}
+```
+
+### Example: Complete Feature with Drizzle-Typebox
+
+```typescript
+// 1. Define Drizzle schema
+// src/db/schema/posts.ts
+import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { user } from './auth-schema'
+
+export const posts = pgTable('posts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  title: text('title').notNull(),
+  content: text('content').notNull(),
+  userId: uuid('user_id').notNull().references(() => user.id),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
+})
+
+// 2. Export from schema index
+// src/db/schema/index.ts
+import * as authSchema from './auth-schema'
+import * as postSchema from './posts'
+
+export const table = {
+  ...authSchema,
+  ...postSchema
+} as const
+
+// 3. Add to db singleton in models.ts
+// src/db/models.ts
+export const db = {
+  insert: spreads({
+    user: createInsertSchema(table.user, {...}),
+    post: createInsertSchema(table.post, {
+      title: t.String({ minLength: 1, maxLength: 200 })
+    })
+  }, 'insert'),
+  select: spreads({
+    user: table.user,
+    post: table.post
+  }, 'select')
+} as const
+
+// 4. Use in module models
+// src/modules/v1/posts/model.ts
+import { db } from '@server/db/models'
+
+export namespace PostModel {
+  const { post } = db.select
+  export { post }
+  export type Post = typeof post
+
+  // For create, pick only the fields needed
+  const { title, content } = db.insert.post
+  export const create = t.Object({ title, content })
+  export type Create = typeof create.static
+}
+
+// 5. Use in controller
+// src/modules/v1/posts/index.ts
+.post('/', async ({ user, body }) => {
+  return await Post.create(body, user.id)
+}, {
+  auth: true,
+  body: PostModel.create,  // Auto-validated against Drizzle schema
+  response: { 200: PostModel.post },
+  detail: { summary: 'Create post', tags: ['Posts'] }
+})
+```
+
+### Benefits in Practice
+
+1. **No Schema Duplication**: Database fields automatically become validation rules
+2. **Type Safety**: TypeScript knows exact database types in your API
+3. **Automatic Updates**: Change a database field, API validation updates automatically
+4. **Better OpenAPI**: Accurate request/response schemas in Swagger docs
+5. **Eden Treaty**: Frontend gets fully typed API client
+
+### Troubleshooting
+
+**Error: "Type instantiation is excessively deep and possibly infinite"**
+- You're using `t.Omit`/`t.Pick` directly on a drizzle-typebox schema
+- Solution: Store the schema in a variable first (see "Critical Best Practice" above)
+
+**Error: Schema not found**
+- Make sure you've added the table to the `db` singleton in `src/db/models.ts`
+- Check that the table is exported from `src/db/schema/index.ts` via the `table` object
 
 ### Service (`service.ts`)
 

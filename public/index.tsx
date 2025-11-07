@@ -1,7 +1,7 @@
 import pkg from '@package'
+import { Spinner } from '@public/components/ui/spinner'
 import { Providers } from '@public/layouts'
 import { authClient } from '@public/lib/auth-client'
-import { Spinner } from '@public/components/ui/spinner'
 import { createRoot } from 'react-dom/client'
 import { LoginForm } from './components/login-form'
 

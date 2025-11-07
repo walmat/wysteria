@@ -63,6 +63,7 @@
     "drizzle": "1.4.0",
     "drizzle-kit": "0.31.6",
     "drizzle-orm": "0.44.7",
+    "drizzle-typebox": "^0.3.3",
     "elysia": "latest",
     "elysia-rate-limit": "4.4.2",
     "embla-carousel-react": "^8.6.0",
@@ -98,6 +99,9 @@
     "bun-types": "latest",
     "react-email": "4.3.2",
     "shadcn": "^3.5.0"
+  },
+  "overrides": {
+    "@sinclair/typebox": "0.34.0"
   },
   "module": "src/index.js"
 }

@@ -23,6 +23,7 @@ A full-stack application featuring:
 - Backend Framework: Elysia.js (latest)
 - Frontend: React 19 + Better Auth client
 - Database: PostgreSQL with Drizzle ORM
+- Validation: drizzle-typebox (auto-generate Elysia schemas from Drizzle)
 - Auth: Better Auth (OAuth + OTP, no passwords)
 - Deployment: SST v3 on AWS (ECS Fargate)
 - Monitoring: OpenTelemetry → Axiom
@@ -105,8 +106,20 @@ Elysia.js API with cluster-based entry point for multi-core utilization.
 - RESTful API at `/v1/*`
 - OpenAPI documentation at `/swagger`
 - Static file serving from `public/`
+- **drizzle-typebox**: Auto-generate Elysia validation schemas from Drizzle tables
 
-**See `src/CLAUDE.md` for detailed backend documentation.**
+**Validation Pattern (Table Singleton):**
+```typescript
+// Drizzle schema automatically becomes Elysia validation
+import { db } from '@server/db/models'
+
+export namespace UserModel {
+  const { user } = db.select
+  export { user }  // Type-safe, auto-validated, OpenAPI documented
+}
+```
+
+**See `src/CLAUDE.md` for detailed backend documentation, including drizzle-typebox usage.**
 
 ### Frontend (public/)
 
